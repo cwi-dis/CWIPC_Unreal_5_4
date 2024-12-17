@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "CWIPointCloudSuite",
+	"Description": "",
+	"Category": "Other",
+	"CreatedBy": "CWI_DIS",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "CWIPointCloudSuite",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
