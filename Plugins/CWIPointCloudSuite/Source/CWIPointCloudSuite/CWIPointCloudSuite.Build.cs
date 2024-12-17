@@ -22,6 +22,7 @@ public class CWIPointCloudSuite : ModuleRules
         PublicIncludePaths.AddRange(
             new string[] {
                 Path.Combine(api_location, "include"),
+                Path.Combine(ModuleDirectory, "Public"),
             });
 
 
