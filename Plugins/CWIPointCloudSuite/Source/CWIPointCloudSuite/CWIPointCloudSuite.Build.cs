@@ -25,6 +25,10 @@ public class CWIPointCloudSuite : ModuleRules
                 Path.Combine(ModuleDirectory, "Public"),
             });
 
+        PrivateIncludePaths.AddRange(
+            new string[] {
+                Path.Combine(ModuleDirectory, "Private"),
+            });
 
         PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "Niagara" });
 

@@ -19,6 +19,12 @@
 			"Name": "CWIPointCloudSuite",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
-		}
+		},
+        {
+            "Name": "CWIPointCloudSuiteEditor",
+            "Type": "Editor",
+            "LoadingPhase": "Default"
+        }
+
 	]
 }
