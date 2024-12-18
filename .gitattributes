@@ -15,5 +15,8 @@
 *.pdb filter=lfs diff=lfs merge=lfs -text
 *.bin filter=lfs diff=lfs merge=lfs -text
 
+# Point cloud file types
+*.cwipcdump filter=lfs diff=lfs merge=lfs -text
+
 # Anything in `/static` dir.
 /Content/Static/** filter=lfs diff=lfs merge=lfs -text
