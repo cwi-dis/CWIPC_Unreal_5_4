@@ -132,7 +132,6 @@ FText UCwipcSourceCameraFactoryNew::GetDisplayName() const
 	return INVTEXT("Cwipc Point Cloud Source - Camera");
 }
 
-#if (0)
 UCwipcSourceFilesFactoryNew::UCwipcSourceFilesFactoryNew(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
 	UE_LOG(LogTemp, Display, TEXT("UCwipcSourceFilesFactoryNew::UCwipcSourceFilesFactoryNew() on 0x%p called"), (void*)this);
@@ -175,4 +174,3 @@ FText UCwipcSourceFilesFactoryNew::GetDisplayName() const
 {
 	return INVTEXT("Cwipc Point Cloud Source - Files");
 }
-#endif
