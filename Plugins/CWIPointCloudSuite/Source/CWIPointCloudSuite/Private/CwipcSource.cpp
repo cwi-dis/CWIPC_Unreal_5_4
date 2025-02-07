@@ -15,7 +15,8 @@ UCwipcSource::UCwipcSource(const FObjectInitializer& ObjectInitializer)
     readerThread(nullptr),
     pc(nullptr),
     pc_points(nullptr),
-    pc_points_count(0)
+    pc_points_count(0),
+    readerQueue(20)
 
 {
     DBG UE_LOG(LogTemp, Display, TEXT("UCwipcSource[%s]::UCwipcSource() called"), *GetPathNameSafe(this));
