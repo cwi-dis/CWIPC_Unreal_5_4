@@ -2,6 +2,8 @@
 
 #include "cwipc_util/api.h"
 #include "CoreGlobals.h"
+#include "NiagaraShaderParametersBuilder.h"
+#include "NiagaraSystemInstance.h"
 
 // Define as empty to get debug prints
 #define DBG
@@ -10,7 +12,7 @@
 //#define DBG if(0)
 #define DBGMORE if(0)
 
-#define LOCTEXT_NAMESPACE "HoudiniNiagaraDataInterface"
+#define LOCTEXT_NAMESPACE "CwipcNiagaraDataInterface"
 
 static const FName InitializeSourceName("InitializeSource");
 static const FName LockPointCloudName("LockPointCloud");
@@ -19,6 +21,12 @@ static const FName GetNumberOfPointsName("GetNumberOfPoints");
 static const FName GetParticleSizeName("GetParticleSize");
 static const FName GetColorName("GetColor");
 static const FName GetPositionName("GetPosition");
+
+// GPU compatibility
+
+const FString UCwipcNiagaraDataInterface::PointsCountParamName = TEXT("PointsCount");
+const FString UCwipcNiagaraDataInterface::PositionsBufferParamName = TEXT("PositionsBuffer");
+const FString UCwipcNiagaraDataInterface::ColorsBufferParamName = TEXT("ColorsBuffer");
 
 
 UCwipcNiagaraDataInterface::UCwipcNiagaraDataInterface(FObjectInitializer const& ObjectInitializer)
@@ -422,3 +430,97 @@ void UCwipcNiagaraDataInterface::GetPosition(FVectorVMExternalFunctionContext& C
 	}
 	DBGMORE UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::GetPosition() nParticles=%d, nPoints=%d"), *GetPathNameSafe(this), numParticles, nPoints);
 }
+
+void UCwipcNiagaraDataInterface::GetParameterDefinitionHLSL(const FNiagaraDataInterfaceGPUParamInfo& ParamInfo, FString& OutHLSL)
+{
+	Super::GetParameterDefinitionHLSL(ParamInfo, OutHLSL);
+	OutHLSL.Appendf(TEXT("int32 % s % s; \n"),
+		*ParamInfo.DataInterfaceHLSLSymbol, *PointsCountParamName);
+	OutHLSL.Appendf(TEXT("Buffer<float4> %s%s;\n"),
+		*ParamInfo.DataInterfaceHLSLSymbol, *PositionsBufferParamName);
+	OutHLSL.Appendf(TEXT("Buffer<float4> %s%s;\n"),
+		*ParamInfo.DataInterfaceHLSLSymbol, *ColorsBufferParamName);
+}
+
+bool UCwipcNiagaraDataInterface::GetFunctionHLSL(const FNiagaraDataInterfaceGPUParamInfo& ParamInfo, const FNiagaraDataInterfaceGeneratedFunction& FunctionInfo, int32 FunctionINstanceIndex, FString& OutHLSL)
+{
+	if (Super::GetFunctionHLSL(ParamInfo, FunctionInfo, FunctionINstanceIndex, OutHLSL))
+	{
+		// If the function is already defined on the Super class, do not
+		// duplicate its definition.
+		return true;
+	}
+	
+	if (FunctionInfo.DefinitionName == GetNumberOfPointsName)
+	{
+		static const TCHAR* FormatBoundsNumberOfPoints = TEXT(R"(
+            int {FunctionName}()
+            {{
+                return {PointsCount};
+            }}
+        )");
+
+		if (FunctionInfo.DefinitionName == GetPositionName)
+		{
+			static const TCHAR* FormatBoundsPosition = TEXT(R"(
+			void {FunctionName}(int Index, out float OutX, out float OutY, out float OutZ)
+			{{
+				float4 Pos = PositionsBuffer[Index];
+				OutX = Pos.x * 100.0f;      // Match CPU: x * 100
+				OutY = Pos.y * -100.0f;     // Match CPU: z * -100
+				OutZ = Pos.z * 100.0f;      // Match CPU: y * 100
+			}}
+		)");
+			const TMap<FString, FStringFormatArg>ArgsBounds =
+			{
+				{TEXT("FunctionName"), FStringFormatArg(FunctionInfo.InstanceName)},
+				{TEXT("PositionsBuffer"), FStringFormatArg(ParamInfo.DataInterfaceHLSLSymbol + PositionsBufferParamName)},
+			};
+
+			OutHLSL += FString::Format(FormatBoundsPosition, ArgsBounds);
+		}
+
+		if (FunctionInfo.DefinitionName == GetColorName)
+		{
+			static const TCHAR* FormatBoundsColor = TEXT(R"(
+			void {FunctionName}(int Index, out float OutR, out float OutG, out float OutB, out float OutA)
+			{{
+				float4 Col = ColorBuffer[Index];
+				OutR = Col.x / 255.0f;
+				OutG = Col.y / 255.0f;
+				OutB = Col.z / 255.0f;
+				OutA = 1.0f;
+			}}
+		)");
+			const TMap<FString, FStringFormatArg>ArgsBounds =
+			{
+				{TEXT("FunctionName"), FStringFormatArg(FunctionInfo.InstanceName)},
+				{TEXT("ColorsBuffer"), FStringFormatArg(ParamInfo.DataInterfaceHLSLSymbol + ColorsBufferParamName)},
+			};
+
+			OutHLSL += FString::Format(FormatBoundsColor, ArgsBounds);
+		}
+	}
+		else
+		{
+			// Return false if the function name does not match any expected.
+			return false;
+		}
+
+		return true;
+	
+}
+
+//bool UCwipcNiagaraDataInterface::UsesLegacyShaderBindings() const
+//{
+//	return false;
+//}
+
+void UCwipcNiagaraDataInterface::BuildShaderParameters(FNiagaraShaderParametersBuilder& ShaderParametersBuilder) const
+{
+}
+
+void UCwipcNiagaraDataInterface::SetShaderParameters(const FNiagaraDataInterfaceSetShaderParametersContext& Context) const
+{
+}
+

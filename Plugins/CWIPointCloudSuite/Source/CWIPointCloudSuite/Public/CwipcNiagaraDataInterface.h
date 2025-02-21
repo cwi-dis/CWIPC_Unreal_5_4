@@ -5,11 +5,14 @@
 #include "CoreMinimal.h"
 #include "NiagaraDataInterface.h"
 #include "CwipcSource.h"
+#include "VectorVM.h"
 #include "CwipcNiagaraDataInterface.generated.h"
+
 
 class cwipc_source;
 class cwipc;
 struct cwipc_point;
+
 
 /**
  *
@@ -19,12 +22,21 @@ UCLASS(EditInlineNew, Category = "Cwipc Niagara", meta = (DisplayName = "Cwipc P
 class CWIPOINTCLOUDSUITE_API UCwipcNiagaraDataInterface : public UNiagaraDataInterface
 {
 	GENERATED_UCLASS_BODY()
+
 	BEGIN_SHADER_PARAMETER_STRUCT(FShaderParameters, )
-		SHADER_PARAMETER(FVector4f, DummyTestMousePosition)
+		SHADER_PARAMETER(int32, PointsCount)
+		SHADER_PARAMETER_SRV(Buffer<float4>, PositionsBuffer)
+		SHADER_PARAMETER_SRV(Buffer<float4>, ColorBuffer)
 	END_SHADER_PARAMETER_STRUCT()
 
 
 	FORCEINLINE int32 GetNumberOfPoints()const { return CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetNumberOfPoints() : 0; }
+
+	// GPU compatibility 
+
+	static const FString PointsCountParamName;
+	static const FString PositionsBufferParamName;
+	static const FString ColorsBufferParamName;
 
 
 protected:
@@ -39,7 +51,7 @@ public:
 	// UObject Interface
 	virtual void PostInitProperties() override;
 	virtual void PostLoad() override;
-	virtual bool CanExecuteOnTarget(ENiagaraSimTarget Target) const override { return true; }
+	virtual bool CanExecuteOnTarget(ENiagaraSimTarget Target) const override { return Target==ENiagaraSimTarget::GPUComputeSim; }
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
@@ -76,4 +88,16 @@ public:
 
 	// Return the positions of a number of points.
 	void GetPosition(FVectorVMExternalFunctionContext& Context);
+
+	// HLSL definitions for GPU 
+	virtual void GetParameterDefinitionHLSL(const FNiagaraDataInterfaceGPUParamInfo& ParamInfo, FString& OutHLSL) override;
+
+	virtual bool GetFunctionHLSL(const FNiagaraDataInterfaceGPUParamInfo& ParamInfo, const FNiagaraDataInterfaceGeneratedFunction& FunctionInfo,int32 FunctionINstanceIndex, FString& OutHLSL) override;
+	
+	//virtual bool UsesLegacyShaderBindings() const override;
+
+	virtual void BuildShaderParameters(FNiagaraShaderParametersBuilder& ShaderParametersBuilder) const override;
+
+	virtual void SetShaderParameters(const FNiagaraDataInterfaceSetShaderParametersContext& Context) const override;
+
 };
