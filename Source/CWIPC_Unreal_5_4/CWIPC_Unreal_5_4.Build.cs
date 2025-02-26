@@ -8,6 +8,8 @@ public class CWIPC_Unreal_5_4 : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "CWIPointCloudSuite" });
-	}
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "CWIPointCloudSuite", "Niagara", "RenderCore","RHI" });
+
+        PrivateDependencyModuleNames.AddRange(new string[] { "Projects", "Slate", "SlateCore" });
+    }
 }

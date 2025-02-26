@@ -23,15 +23,16 @@ class CWIPOINTCLOUDSUITE_API UCwipcNiagaraDataInterface : public UNiagaraDataInt
 {
 	GENERATED_UCLASS_BODY()
 
+	/*
 	BEGIN_SHADER_PARAMETER_STRUCT(FShaderParameters, )
 		SHADER_PARAMETER(int32, PointsCount)
-		SHADER_PARAMETER_SRV(Buffer<float4>, PositionsBuffer)
-		SHADER_PARAMETER_SRV(Buffer<float4>, ColorBuffer)
+		SHADER_PARAMETER_SRV(<float4>, PointsBuffer)
 	END_SHADER_PARAMETER_STRUCT()
+	*/
 
-
+#ifdef xxxjack 
 	FORCEINLINE int32 GetNumberOfPoints()const { return CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetNumberOfPoints() : 0; }
-
+#endif
 	// GPU compatibility 
 
 	static const FString PointsCountParamName;
@@ -65,7 +66,11 @@ public:
 	virtual void GetVMExternalFunction(const FVMExternalFunctionBindingInfo& BindingInfo, void* InstanceData, FVMExternalFunction& OutFunc) override;
 
 	virtual bool Equals(const UNiagaraDataInterface* Other) const override;
-
+	virtual bool InitPerInstanceData(void* PerInstanceData, FNiagaraSystemInstance* SystemInstance) override;
+	virtual void DestroyPerInstanceData(void* PerInstanceData, FNiagaraSystemInstance* SystemInstance) override;
+	virtual int32 PerInstanceDataSize() const override;
+	virtual void ProvidePerInstanceDataForRenderThread(void* DataForRenderThread, void* PerInstanceData, const FNiagaraSystemInstanceID& SystemInstance) override;
+	virtual bool PerInstanceTick(void* PerInstanceData, FNiagaraSystemInstance* SystemInstance, float DeltaSeconds) override;
 	//----------------------------------------------------------------------------
 	// EXPOSED FUNCTIONS
 	// Initializes the source. Call once, at the start of the Niagara system or Niagara emitter.

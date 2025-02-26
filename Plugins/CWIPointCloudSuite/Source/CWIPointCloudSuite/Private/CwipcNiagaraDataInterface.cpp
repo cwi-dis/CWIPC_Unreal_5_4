@@ -28,6 +28,189 @@ const FString UCwipcNiagaraDataInterface::PointsCountParamName = TEXT("PointsCou
 const FString UCwipcNiagaraDataInterface::PositionsBufferParamName = TEXT("PositionsBuffer");
 const FString UCwipcNiagaraDataInterface::ColorsBufferParamName = TEXT("ColorsBuffer");
 
+// the struct used to store our point cloud instance data
+struct FCwipcInstanceData
+{
+	cwipc* pc;
+	int64_t pc_first_timestamp = -1; //xxxjack need to look at this
+	cwipc_point* pc_points;
+	int pc_points_count;
+	FCriticalSection pc_lock;
+
+	
+	FCwipcInstanceData()
+	:	pc(nullptr),
+		pc_points(nullptr),
+		pc_points_count(0)
+	{
+
+	}
+
+	FCwipcInstanceData(const FCwipcInstanceData& Other)
+	:	pc(nullptr),
+		pc_points(nullptr),
+		pc_points_count(0)
+	{
+	}
+
+	FCwipcInstanceData& operator=(const FCwipcInstanceData& Other)
+	{
+		if (this != &Other)
+		{
+			// xxxjack need to lock Other.pc_lock here?
+			pc = Other.pc;
+			pc_first_timestamp = Other.pc_first_timestamp;
+			pc_points = Other.pc_points;
+			pc_points_count = Other.pc_points_count;
+		}
+		return *this;
+	}
+	bool _ValidPointCloudAvailable();
+
+	
+	void SetPointCloud(cwipc* newPC);
+
+	
+	int32 GetNumberOfPoints();
+
+	
+	int32 GetTimeStamp();
+
+	
+	float GetParticleSize();
+
+	cwipc_point* GetPoint(int32 index);
+};
+
+void FCwipcInstanceData::SetPointCloud(cwipc* newPC)
+{
+	FScopeLock lock(&pc_lock);
+	if (pc != nullptr) {
+		pc->free();
+	}
+	pc = newPC;
+	if (pc == nullptr) {
+		pc_points = nullptr;
+		pc_points_count = 0;
+		pc_first_timestamp = -1;
+	}
+	pc_first_timestamp = pc->timestamp();;
+	pc_points_count = pc->count();
+	int32 byte_count = pc->get_uncompressed_size();
+	pc_points = (cwipc_point*)malloc(byte_count);
+	if (pc_points == nullptr) {
+		UE_LOG(LogTemp, Error, TEXT("UCwpicSource::_CheckForNewPointCloudAvailable: malloc(%d) failed"), byte_count);
+		// For consistency we also free the pointcloud.
+		pc->free();
+		pc = nullptr;
+		pc_points_count = 0;
+		return ;
+	}
+	int32 copied_count = pc->copy_uncompressed(pc_points, byte_count);
+	if (pc_points_count != copied_count) {
+		UE_LOG(LogTemp, Error, TEXT("UCwpicSource::_CheckForNewPointCloudAvailable: copy_uncompressed copied wrong number of points. Wanted %d, got %d"), pc_points_count, copied_count);
+		// For consistency we also free the pointcloud.
+		pc->free();
+		pc = nullptr;
+		free(pc_points);
+		pc_points = nullptr;
+		pc_points_count = 0;
+		return ;
+	}
+
+}
+// xyzzy
+bool FCwipcInstanceData::_ValidPointCloudAvailable()
+{
+	return pc != nullptr;
+}
+
+int32 FCwipcInstanceData::GetNumberOfPoints()
+{
+	//  const std::clock_t start = std::clock();
+	FScopeLock lock(&pc_lock);
+	if (!_ValidPointCloudAvailable()) {
+		return 0;
+	}
+	int32 rv = pc_points_count;
+	// const std::clock_t end = std::clock();
+	//  
+// UE_LOG(LogTemp, Display, TEXT("FCwipcInstanceData[%s]::GetNumberOfPoints() took %f ms"), *GetPathNameSafe(this), 1000.0 * (end - start) / CLOCKS_PER_SEC);
+	return rv;
+
+}
+
+int32 FCwipcInstanceData::GetTimeStamp()
+{
+	FScopeLock lock(&pc_lock);
+	if (!_ValidPointCloudAvailable()) {
+		return 0;
+	}
+	return pc->timestamp() - pc_first_timestamp;
+}
+
+float FCwipcInstanceData::GetParticleSize()
+{
+	FScopeLock lock(&pc_lock);
+	if (!_ValidPointCloudAvailable()) {
+		return 0;
+	}
+	float cellsize = pc->cellsize();
+#ifdef xxxjack
+	if (cellsize == 0) {
+		cellsize = defaultCellSize;
+	}
+	return pc->cellsize() * particle_size_factor;
+#else
+	return cellsize;
+#endif
+}
+
+
+
+cwipc_point* FCwipcInstanceData::GetPoint(int32 index)
+{
+	FScopeLock lock(&pc_lock);
+	static cwipc_point nullpoint{ 1.0f, 1.0f, 1.0f, 112, 54, 25, 0 };
+	if (pc_points == nullptr) {
+		UE_LOG(LogTemp, Error, TEXT("FCwipcInstanceData::GetPoint: pc_points is null"));
+		return &nullpoint;
+	}
+	if (index < 0 || index >= pc_points_count) {
+		UE_LOG(LogTemp, Error, TEXT("FCwipcInstanceData::GetPoint: index %d out of range %d"), index, pc_points_count);
+		return &nullpoint;
+	}
+	return &pc_points[index];
+}// xyzzy
+
+// this proxy is used to safely copy data between game thread and render thread
+struct FCwipcNDIProxy : public FNiagaraDataInterfaceProxy
+{
+	virtual int32 PerInstanceDataPassedToRenderThreadSize() const override { return sizeof(FCwipcInstanceData); }
+
+	static void ProvidePerInstanceDataForRenderThread(void* InDataForRenderThread, void* InDataFromGameThread, const FNiagaraSystemInstanceID& SystemInstance)
+	{
+		// initialize the render thread instance data into the pre-allocated memory
+		FCwipcInstanceData* DataForRenderThread = new (InDataForRenderThread) FCwipcInstanceData();
+
+		// we're just copying the game thread data, but the render thread data can be initialized to anything here and can be another struct entirely
+		const FCwipcInstanceData* DataFromGameThread = static_cast<FCwipcInstanceData*>(InDataFromGameThread);
+		// xxxjack we may want to clear out the game thread data here.
+		*DataForRenderThread = *DataFromGameThread;
+	}
+
+	virtual void ConsumePerInstanceDataFromGameThread(void* PerInstanceData, const FNiagaraSystemInstanceID& InstanceID) override
+	{
+		FCwipcInstanceData* InstanceDataFromGT = static_cast<FCwipcInstanceData*>(PerInstanceData);
+		FCwipcInstanceData& InstanceData = SystemInstancesToInstanceData_RT.FindOrAdd(InstanceID);
+		InstanceData = *InstanceDataFromGT;
+
+		// we call the destructor here to clean up the GT data. Without this we could be leaking memory.
+		InstanceDataFromGT->~FCwipcInstanceData();
+	}
+
+	TMap<FNiagaraSystemInstanceID, FCwipcInstanceData> SystemInstancesToInstanceData_RT;
+};
 
 UCwipcNiagaraDataInterface::UCwipcNiagaraDataInterface(FObjectInitializer const& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -35,9 +218,7 @@ UCwipcNiagaraDataInterface::UCwipcNiagaraDataInterface(FObjectInitializer const&
 	CwipcPointCloudSourceAsset = nullptr;
 	DBG UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::UCwipcNiagaraDataInterface() called, source=[%s]"), *GetPathNameSafe(this), *GetPathNameSafe(CwipcPointCloudSourceAsset));
 
-#if 0
-	Proxy.Reset(new FNDIMousePositionProxy());
-#endif
+	Proxy.Reset(new FCwipcNDIProxy());
 }
 
 void UCwipcNiagaraDataInterface::PostInitProperties()
@@ -47,6 +228,9 @@ void UCwipcNiagaraDataInterface::PostInitProperties()
 	FString runtimeVersion = cwipc_get_version();
 	DBG UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface::PostInitProperties: cwipc runtime version = %s "), *runtimeVersion);
 	Super::PostInitProperties();
+
+	Proxy = MakeUnique<FCwipcNDIProxy>();
+
 	if (HasAnyFlags(RF_ClassDefaultObject))
 	{
 		ENiagaraTypeRegistryFlags RegistryFlags = ENiagaraTypeRegistryFlags::AllowAnyVariable
@@ -277,6 +461,63 @@ bool UCwipcNiagaraDataInterface::Equals(const UNiagaraDataInterface* Other) cons
 	return false;
 }
 
+bool UCwipcNiagaraDataInterface::InitPerInstanceData(void* PerInstanceData, FNiagaraSystemInstance* SystemInstance)
+{
+	FCwipcInstanceData* InstanceData = new (PerInstanceData) FCwipcInstanceData;
+	//InstanceData->pc = nullptr;
+	//InstanceData->timestamp = 0;
+	//InstanceData->pcData = nullptr;
+	//InstanceData->particleSize = 0;
+	//InstanceData->points = nullptr;
+	UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::InitPerInstanceData() called"), *GetPathNameSafe(this));
+	return true;
+}
+
+void UCwipcNiagaraDataInterface::DestroyPerInstanceData(void* PerInstanceData, FNiagaraSystemInstance* SystemInstance)
+{
+	/*
+	FCwipcInstanceData* InstanceData = static_cast<FCwipcInstanceData*>(PerInstanceData);
+	InstanceData->~FCwipcInstanceData();
+
+	ENQUEUE_RENDER_COMMAND(RemoveProxy)
+		(
+			[RT_Proxy = GetProxyAs<FCwipcNDIProxy>(), InstanceID = SystemInstance->GetId()](FRHICommandListImmediate& CmdList)
+			{
+				RT_Proxy->SystemInstancesToInstanceData_RT.Remove(InstanceID);
+			}
+			);
+			*/
+}
+
+int32 UCwipcNiagaraDataInterface::PerInstanceDataSize() const
+{
+	return sizeof(FCwipcInstanceData);
+}
+
+void UCwipcNiagaraDataInterface::ProvidePerInstanceDataForRenderThread(void* DataForRenderThread, void* PerInstanceData, const FNiagaraSystemInstanceID& SystemInstance)
+{
+	//FCwipcNDIProxy::ProvidePerInstanceDataForRenderThread(DataForRenderThread, PerInstanceData, SystemInstance);
+}
+
+bool UCwipcNiagaraDataInterface::PerInstanceTick(void* PerInstanceData, FNiagaraSystemInstance* SystemInstance, float DeltaSeconds)
+{
+	check(SystemInstance);
+	FCwipcInstanceData* InstanceData = static_cast<FCwipcInstanceData*>(PerInstanceData);
+	if (!InstanceData)
+	{
+		return true;
+	}
+
+	// Update the instance data as needed
+	//InstanceData->pc = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->get
+	//InstanceData->timestamp = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetTimeStamp() : 0;
+	//InstanceData->pcData = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset : nullptr;
+	//InstanceData->particleSize = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetParticleSize() : 0;
+	//InstanceData->points = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetPoint(int32, index) : nullptr;
+
+	return false;
+}
+
 void UCwipcNiagaraDataInterface::InitializeSource(FVectorVMExternalFunctionContext& Context)
 {
 	VectorVM::FExternalFuncRegisterHandler<bool> OutDidRun(Context);
@@ -317,18 +558,33 @@ void UCwipcNiagaraDataInterface::LockPointCloud(FVectorVMExternalFunctionContext
 			warnedAboutLockBeforeInitialize = false;
 		}
 	}
-	bool isFresh = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->LockPointCloud() : false;
+	VectorVM::FUserPtrHandler<FCwipcInstanceData> InstData(Context);
+	FCwipcInstanceData* InstanceData = InstData.Get();
+	if (InstanceData == nullptr) {
+		return;
+	}
+	bool isFresh = false;
+	cwipc* pc = CwipcPointCloudSourceAsset->CheckForNewPointCloudAvailable();
+	if (pc != nullptr) {
+		isFresh = true;
+		InstanceData->SetPointCloud(pc);
+	}
 	*IsFresh.GetDest() = isFresh;
 	IsFresh.Advance();
 	DBGMORE UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::LockPointCloud() returns %d"), *GetPathNameSafe(this), (int)isFresh);
-	\
+	
 }
 
 void UCwipcNiagaraDataInterface::GetTimeStamp(FVectorVMExternalFunctionContext& Context)
 {
 	DBGMORE UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::GetTimeStamp() called"), *GetPathNameSafe(this));
 	VectorVM::FExternalFuncRegisterHandler<int32> OutTimeStamp(Context);
-	int32 timestamp = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetTimeStamp() : 0;
+	VectorVM::FUserPtrHandler<FCwipcInstanceData> InstData(Context);
+	FCwipcInstanceData* InstanceData = InstData.Get();
+	if (InstanceData == nullptr) {
+		return;
+	}
+	int32 timestamp = InstanceData->GetTimeStamp();
 	*OutTimeStamp.GetDest() = timestamp;
 	OutTimeStamp.Advance();
 	DBGMORE UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::GetTimeStamp() returns %d"), *GetPathNameSafe(this), timestamp);
@@ -338,7 +594,12 @@ void UCwipcNiagaraDataInterface::GetNumberOfPoints(FVectorVMExternalFunctionCont
 {
 	DBGMORE UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::GetNumberOfPoints() called"), *GetPathNameSafe(this));
 	VectorVM::FExternalFuncRegisterHandler<int32> OutNumPoints(Context);
-	int32 nPoints = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetNumberOfPoints() : 0;
+	VectorVM::FUserPtrHandler<FCwipcInstanceData> InstData(Context);
+	FCwipcInstanceData* InstanceData = InstData.Get();
+	if (InstanceData == nullptr) {
+		return;
+	}
+	int32 nPoints = InstanceData->GetNumberOfPoints();
 	*OutNumPoints.GetDest() = nPoints;
 	OutNumPoints.Advance();
 	DBGMORE UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::GetNumberOfPoints() returns %d"), *GetPathNameSafe(this), nPoints);
@@ -348,7 +609,9 @@ void UCwipcNiagaraDataInterface::GetParticleSize(FVectorVMExternalFunctionContex
 {
 	DBGMORE UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::GetParticleSize() called"), *GetPathNameSafe(this));
 	VectorVM::FExternalFuncRegisterHandler<float> OutParticleSize(Context);
-	float particleSize = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetParticleSize() : 0;
+	VectorVM::FUserPtrHandler<FCwipcInstanceData> InstData(Context);
+	FCwipcInstanceData* InstanceData = InstData.Get();
+	float particleSize = InstanceData->GetParticleSize();
 	*OutParticleSize.GetDest() = particleSize;
 	OutParticleSize.Advance();
 	DBGMORE UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::GetParticleSize() returns %f"), *GetPathNameSafe(this), particleSize);
@@ -363,18 +626,22 @@ void UCwipcNiagaraDataInterface::GetColor(FVectorVMExternalFunctionContext& Cont
 	VectorVM::FExternalFuncRegisterHandler<float> OutSampleG(Context);
 	VectorVM::FExternalFuncRegisterHandler<float> OutSampleB(Context);
 	VectorVM::FExternalFuncRegisterHandler<float> OutSampleA(Context);
-
+	VectorVM::FUserPtrHandler<FCwipcInstanceData> InstData(Context);
+	FCwipcInstanceData* InstanceData = InstData.Get();
+	if (InstanceData == nullptr) {
+		return;
+	}
 	if (CwipcPointCloudSourceAsset == nullptr) {
 		return;
 	}
-	int32 nPoints = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetNumberOfPoints() : 1;
+	int32 nPoints = InstanceData->GetNumberOfPoints();
 
 	int32 numParticles = Context.GetNumInstances();
 	for (int32 i = 0; i < numParticles; ++i)
 	{
 		int32 idx = SampleIndexParam.Get();
 
-		cwipc_point* pt = CwipcPointCloudSourceAsset->GetPoint(idx);
+		cwipc_point* pt = InstanceData->GetPoint(idx);
 		if (pt == nullptr) {
 			return;
 		}
@@ -405,17 +672,19 @@ void UCwipcNiagaraDataInterface::GetPosition(FVectorVMExternalFunctionContext& C
 	VectorVM::FExternalFuncRegisterHandler<float> OutSampleX(Context);
 	VectorVM::FExternalFuncRegisterHandler<float> OutSampleY(Context);
 	VectorVM::FExternalFuncRegisterHandler<float> OutSampleZ(Context);
+	VectorVM::FUserPtrHandler<FCwipcInstanceData> InstData(Context);
+	FCwipcInstanceData* InstanceData = InstData.Get();
 
-	if (CwipcPointCloudSourceAsset == nullptr) {
+	if (InstanceData == nullptr) {
 		return;
 	}
-	int32 nPoints = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetNumberOfPoints() : 1;
+	int32 nPoints = InstanceData->GetNumberOfPoints();
 
 	int32 numParticles = Context.GetNumInstances();
 	for (int32 i = 0; i < numParticles; ++i)
 	{
 		int32 idx = SampleIndexParam.Get();
-		cwipc_point* pt = CwipcPointCloudSourceAsset->GetPoint(idx);
+		cwipc_point* pt = InstanceData->GetPoint(idx);
 		if (pt == nullptr) {
 			return;
 		}
@@ -518,9 +787,19 @@ bool UCwipcNiagaraDataInterface::GetFunctionHLSL(const FNiagaraDataInterfaceGPUP
 
 void UCwipcNiagaraDataInterface::BuildShaderParameters(FNiagaraShaderParametersBuilder& ShaderParametersBuilder) const
 {
+	//ShaderParametersBuilder.AddNestedStruct<FShaderParameters>();
 }
 
 void UCwipcNiagaraDataInterface::SetShaderParameters(const FNiagaraDataInterfaceSetShaderParametersContext& Context) const
 {
+	/*
+	FShaderParameters* Parameters = Context.GetParameterNestedStruct<FShaderParameters>();
+	FCwipcNDIProxy& DIProxy = Context.GetProxy<FCwipcNDIProxy>();
+	FCwipcInstanceData& InstanceData = DIProxy.SystemInstancesToInstanceData_RT.FindChecked(Context.GetSystemInstanceID());
+
+	FShaderParameters* ShaderParameters = Context.GetParameterNestedStruct<FShaderParameters>();
+	//ShaderParameters->PointsCount = InstanceData.pcData->GetNumberOfPoints();
+	//ShaderParameters->PositionsBuffer = InstanceData.points ? InstanceData.points->GetSRV() : nullptr;
+	*/
 }
 

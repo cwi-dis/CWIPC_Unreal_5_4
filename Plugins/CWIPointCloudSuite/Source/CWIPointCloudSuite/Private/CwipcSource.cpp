@@ -13,9 +13,6 @@
 UCwipcSource::UCwipcSource(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer),
     readerThread(nullptr),
-    pc(nullptr),
-    pc_points(nullptr),
-    pc_points_count(0),
     readerQueue(20)
 
 {
@@ -25,13 +22,13 @@ UCwipcSource::UCwipcSource(const FObjectInitializer& ObjectInitializer)
 
 void UCwipcSource::_CleanupEverything()
 {
-    FScopeLock lock(&pc_lock);
     // xxxjack _CleanupEverything should also be called during destroction, after editing a source, etc.
     if (readerThread) {
         readerThread->Stop();
         readerThread = nullptr;
     }
-
+#ifdef xxxjack_moved_to_instance_data
+    FScopeLock lock(&pc_lock);
     if (pc != nullptr) {
         pc->free();
         pc = nullptr;
@@ -41,6 +38,7 @@ void UCwipcSource::_CleanupEverything()
         pc_points = nullptr;
         pc_points_count = 0;
     }
+#endif
 }
 
 void UCwipcSource::PostInitProperties()
@@ -108,148 +106,29 @@ bool UCwipcSource::InitializeSource()
         return true;
     }
 
-    if (pc != nullptr) {
-        pc->free();
-        pc = nullptr;
-    }
-    if (pc_points != nullptr)
-    {
-        free(pc_points);
-        pc_points = nullptr;
-        pc_points_count = 0;
-    }
-    pc_first_timestamp = -1;
     return _AllocateReaderThread();
 }
 
-bool UCwipcSource::LockPointCloud()
-{
-    return _CheckForNewPointCloudAvailable();
-}
 
-bool UCwipcSource::_CheckForNewPointCloudAvailable()
+cwipc* UCwipcSource::CheckForNewPointCloudAvailable()
 {
-    FScopeLock lock(&pc_lock);
     if (readerThread == nullptr) {
         // xxxjack DBG UE_LOG(LogTemp, Warning, TEXT("UcwipcSource[%s]: _CheckForNewPointCloudAvailable: source == NULL, Initializing"), *GetPathNameSafe(this));
         // xxxjack InitializeSource();
-        return false;
+        return nullptr;
     }
 
     if (readerQueue.IsEmpty())
     {
-        return false;
+        return nullptr;
     }
     cwipc* new_pc = nullptr;
     if (!readerQueue.Dequeue(new_pc))
     {
         // Should not happen?
-        return false;
+        return nullptr;
     }
-    // If a new pointcloud is available we get it.
-    // First we release the old one.
-    if (pc != nullptr)
-    {
-        cwipc_free(pc);
-        pc = nullptr;
-    }
-    if (pc_points != nullptr)
-    {
-        free(pc_points);
-        pc_points = nullptr;
-        pc_points_count = 0;
-    }
-    pc = new_pc;
-    if (pc_first_timestamp < 0) {
-        pc_first_timestamp = pc->timestamp();
-    }
-    if (pc == nullptr)
-    {
-        UE_LOG(LogTemp, Error, TEXT("UCwpicSource::_CheckForNewPointCloudAvailable: available returned true but no point cloud available"));
-        return false;
-    }
-    pc_points_count = pc->count();
-    int32 byte_count = pc->get_uncompressed_size();
-    pc_points = (cwipc_point*)malloc(byte_count);
-    if (pc_points == nullptr) {
-        UE_LOG(LogTemp, Error, TEXT("UCwpicSource::_CheckForNewPointCloudAvailable: malloc(%d) failed"), byte_count);
-        // For consistency we also free the pointcloud.
-        pc->free();
-        pc = nullptr;
-        pc_points_count = 0;
-        return false;
-    }
-    int32 copied_count = pc->copy_uncompressed(pc_points, byte_count);
-    if (pc_points_count != copied_count) {
-        UE_LOG(LogTemp, Error, TEXT("UCwpicSource::_CheckForNewPointCloudAvailable: copy_uncompressed copied wrong number of points. Wanted %d, got %d"), pc_points_count, copied_count);
-        // For consistency we also free the pointcloud.
-        pc->free();
-        pc = nullptr;
-        free(pc_points);
-        pc_points = nullptr;
-        pc_points_count = 0;
-        return false;
-    }
-    return pc != nullptr;
-}
-
-bool UCwipcSource::_ValidPointCloudAvailable()
-{
-    return pc != nullptr;
-}
-
-int32 UCwipcSource::GetNumberOfPoints()
-{
-    //  const std::clock_t start = std::clock();
-    FScopeLock lock(&pc_lock);
-    if (!_ValidPointCloudAvailable()) {
-        return 0;
-    }
-    int32 rv = pc_points_count;
-    // const std::clock_t end = std::clock();
-    //  
-// UE_LOG(LogTemp, Display, TEXT("UCwipcSource[%s]::GetNumberOfPoints() took %f ms"), *GetPathNameSafe(this), 1000.0 * (end - start) / CLOCKS_PER_SEC);
-    return rv;
-
-}
-
-int32 UCwipcSource::GetTimeStamp()
-{
-    FScopeLock lock(&pc_lock);
-    if (!_ValidPointCloudAvailable()) {
-        return 0;
-    }
-    return pc->timestamp() - pc_first_timestamp;
-}
-
-float UCwipcSource::GetParticleSize()
-{
-    FScopeLock lock(&pc_lock);
-    if (!_ValidPointCloudAvailable()) {
-        return 0;
-    }
-    float cellsize = pc->cellsize();
-    if (cellsize == 0) {
-        cellsize = defaultCellSize;
-    }
-    return pc->cellsize() * particle_size_factor;
-}
-
-
-
-cwipc_point* UCwipcSource::GetPoint(int32 index)
-{
-    FScopeLock lock(&pc_lock);
-    static cwipc_point nullpoint{ 1.0f, 1.0f, 1.0f, 112, 54, 25, 0 };
-    if (pc_points == nullptr) {
-        UE_LOG(LogTemp, Error, TEXT("UCwipcSource::GetPoint: pc_points is null"));
-        return &nullpoint;
-    }
-    if (index < 0 || index >= pc_points_count) {
-        UE_LOG(LogTemp, Error, TEXT("UCwipcSource::GetPoint: index %d out of range %d"), index, pc_points_count);
-        return &nullpoint;
-    }
-    return &pc_points[index];
+    return new_pc;
 }
 
 FCwipcReaderThread::FCwipcReaderThread(cwipc_source* _source, TCircularQueue<cwipc*>& _queue)

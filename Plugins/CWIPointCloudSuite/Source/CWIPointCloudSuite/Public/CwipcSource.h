@@ -41,11 +41,7 @@ protected:
 	TCircularQueue<cwipc*> readerQueue = TCircularQueue<cwipc*>(4);
 	FCriticalSection thread_lock;
 
-	cwipc* pc;
-	int64_t pc_first_timestamp = -1;
-	cwipc_point* pc_points;
-	int pc_points_count;
-	FCriticalSection pc_lock;
+
 
 	// Override this in a subclass if your subclass reads point clouds from a cwipc_source.
 	virtual cwipc_source* _AllocateSource();
@@ -79,18 +75,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Cwipc Niagara", meta = (DisplayName = "Initialize source"))
 	bool InitializeSource();
+	cwipc* CheckForNewPointCloudAvailable();
 
-	UFUNCTION(BlueprintCallable, Category = "Cwipc Niagara", meta = (DisplayName = "Get a fresh point cloud if one is available"))
-	bool LockPointCloud();
-
-	UFUNCTION(BlueprintCallable, Category = "Cwipc Niagara", meta = (DisplayName = "Get number of points from current point cloud"))
-	int32 GetNumberOfPoints();
-
-	UFUNCTION(BlueprintCallable, Category = "Cwipc Niagara", meta = (DisplayName = "Get relative timestamp of current point cloud"))
-	int32 GetTimeStamp();
-
-	UFUNCTION(BlueprintCallable, Category = "Cwipc Niagara", meta = (DisplayName = "Get particle size for current point cloud"))
-	float GetParticleSize();
 
 	UPROPERTY(EditAnywhere, Category = "Cwipc Niagara", meta = (DisplayName = "Point size to use when unknown"))
 	float defaultCellSize = 0.001;
@@ -105,7 +91,5 @@ public:
 	int synthetic_wanted_fps = 5;
 
 	// Sample indexes for each point
-
-	cwipc_point* GetPoint(int32 index);
 
 };
