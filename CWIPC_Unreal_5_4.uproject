@@ -1,6 +1,6 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "5.4",
+	"EngineAssociation": "{83371C26-4A52-8423-9AA7-96873E9AF4EB}",
 	"Category": "",
 	"Description": "",
 	"Modules": [
@@ -20,6 +20,10 @@
 		},
 		{
 			"Name": "CWIPointCloudSuite",
+			"Enabled": true
+		},
+		{
+			"Name": "ExampleCustomDataInterface",
 			"Enabled": true
 		}
 	]

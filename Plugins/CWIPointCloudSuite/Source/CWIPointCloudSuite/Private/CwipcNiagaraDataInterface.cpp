@@ -3,6 +3,7 @@
 #include "cwipc_util/api.h"
 #include "CoreGlobals.h"
 #include "NiagaraShaderParametersBuilder.h"
+#include "NiagaraCompileHashVisitor.h"
 #include "NiagaraSystemInstance.h"
 
 // Define as empty to get debug prints
@@ -29,58 +30,7 @@ const FString UCwipcNiagaraDataInterface::PositionsBufferParamName = TEXT("Posit
 const FString UCwipcNiagaraDataInterface::ColorsBufferParamName = TEXT("ColorsBuffer");
 
 // the struct used to store our point cloud instance data
-struct FCwipcInstanceData
-{
-	cwipc* pc;
-	int64_t pc_first_timestamp = -1; //xxxjack need to look at this
-	cwipc_point* pc_points;
-	int pc_points_count;
-	FCriticalSection pc_lock;
 
-	
-	FCwipcInstanceData()
-	:	pc(nullptr),
-		pc_points(nullptr),
-		pc_points_count(0)
-	{
-
-	}
-
-	FCwipcInstanceData(const FCwipcInstanceData& Other)
-	:	pc(nullptr),
-		pc_points(nullptr),
-		pc_points_count(0)
-	{
-	}
-
-	FCwipcInstanceData& operator=(const FCwipcInstanceData& Other)
-	{
-		if (this != &Other)
-		{
-			// xxxjack need to lock Other.pc_lock here?
-			pc = Other.pc;
-			pc_first_timestamp = Other.pc_first_timestamp;
-			pc_points = Other.pc_points;
-			pc_points_count = Other.pc_points_count;
-		}
-		return *this;
-	}
-	bool _ValidPointCloudAvailable();
-
-	
-	void SetPointCloud(cwipc* newPC);
-
-	
-	int32 GetNumberOfPoints();
-
-	
-	int32 GetTimeStamp();
-
-	
-	float GetParticleSize();
-
-	cwipc_point* GetPoint(int32 index);
-};
 
 void FCwipcInstanceData::SetPointCloud(cwipc* newPC)
 {
@@ -298,7 +248,6 @@ void UCwipcNiagaraDataInterface::GetFunctions(TArray<FNiagaraFunctionSignature>&
 		FNiagaraFunctionSignature Sig;
 		Sig.Name = LockPointCloudName;
 		Sig.bMemberFunction = true;
-		Sig.bRequiresContext = false;
 		Sig.Inputs.Add(FNiagaraVariable(FNiagaraTypeDefinition(GetClass()), TEXT("PointCloud")));	// PointCloud in
 		Sig.Outputs.Add(FNiagaraVariable(FNiagaraTypeDefinition::GetBoolDef(), TEXT("Value")));    	// True if a fresh point cloud was gathered
 
@@ -446,6 +395,7 @@ bool UCwipcNiagaraDataInterface::CopyToInternal(UNiagaraDataInterface* Destinati
 	return true;
 }
 
+
 bool UCwipcNiagaraDataInterface::Equals(const UNiagaraDataInterface* Other) const
 {
 	if (!Super::Equals(Other))
@@ -463,13 +413,19 @@ bool UCwipcNiagaraDataInterface::Equals(const UNiagaraDataInterface* Other) cons
 
 bool UCwipcNiagaraDataInterface::InitPerInstanceData(void* PerInstanceData, FNiagaraSystemInstance* SystemInstance)
 {
-	FCwipcInstanceData* InstanceData = new (PerInstanceData) FCwipcInstanceData;
-	//InstanceData->pc = nullptr;
-	//InstanceData->timestamp = 0;
-	//InstanceData->pcData = nullptr;
-	//InstanceData->particleSize = 0;
-	//InstanceData->points = nullptr;
-	UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::InitPerInstanceData() called"), *GetPathNameSafe(this));
+	FCwipcInstanceData* InstanceData = static_cast<FCwipcInstanceData*>(PerInstanceData);
+	if (!InstanceData)
+	{
+		UE_LOG(LogTemp, Error, TEXT("UCwipcNiagaraDataInterface[%s]::InitPerInstanceData: PerInstanceData is NULL"), *GetPathNameSafe(this));
+		return false;
+	}
+	InstanceData->pc = nullptr;
+	InstanceData->pc_first_timestamp = -1;
+	InstanceData->pc_points = nullptr;
+	InstanceData->pc_points_count = 0;
+	UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::InitPerInstanceData(0x%p) called"), *GetPathNameSafe(this), (void *)InstanceData);
+	UE_LOG(LogTemp, Display, TEXT("InitPerInstanceData() successfully initialized InstanceData at %p"), InstanceData);
+	
 	return true;
 }
 
@@ -478,7 +434,7 @@ void UCwipcNiagaraDataInterface::DestroyPerInstanceData(void* PerInstanceData, F
 	/*
 	FCwipcInstanceData* InstanceData = static_cast<FCwipcInstanceData*>(PerInstanceData);
 	InstanceData->~FCwipcInstanceData();
-
+	
 	ENQUEUE_RENDER_COMMAND(RemoveProxy)
 		(
 			[RT_Proxy = GetProxyAs<FCwipcNDIProxy>(), InstanceID = SystemInstance->GetId()](FRHICommandListImmediate& CmdList)
@@ -491,6 +447,7 @@ void UCwipcNiagaraDataInterface::DestroyPerInstanceData(void* PerInstanceData, F
 
 int32 UCwipcNiagaraDataInterface::PerInstanceDataSize() const
 {
+	UE_LOG(LogTemp, Display, TEXT("PerInstanceDataSize() called. Size: %d"), sizeof(FCwipcInstanceData));
 	return sizeof(FCwipcInstanceData);
 }
 
@@ -509,11 +466,10 @@ bool UCwipcNiagaraDataInterface::PerInstanceTick(void* PerInstanceData, FNiagara
 	}
 
 	// Update the instance data as needed
-	//InstanceData->pc = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->get
-	//InstanceData->timestamp = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetTimeStamp() : 0;
-	//InstanceData->pcData = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset : nullptr;
-	//InstanceData->particleSize = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetParticleSize() : 0;
-	//InstanceData->points = CwipcPointCloudSourceAsset ? CwipcPointCloudSourceAsset->GetPoint(int32, index) : nullptr;
+	InstanceData->pc = CwipcPointCloudSourceAsset->CheckForNewPointCloudAvailable();
+	InstanceData->pc_first_timestamp = InstanceData->pc ? InstanceData->pc->timestamp() : -1;
+	InstanceData->pc_points = InstanceData->pc ? InstanceData->pc_points : nullptr;
+	InstanceData->pc_points_count = InstanceData->pc ? InstanceData->GetNumberOfPoints() : 0;
 
 	return false;
 }
@@ -541,6 +497,7 @@ void UCwipcNiagaraDataInterface::LockPointCloud(FVectorVMExternalFunctionContext
 {
 	DBGMORE UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::LockPointCloud() called"), *GetPathNameSafe(this));
 	VectorVM::FExternalFuncRegisterHandler<bool> IsFresh(Context);
+	VectorVM::FUserPtrHandler<FCwipcInstanceData> InstData(Context);
 	if (CwipcPointCloudSourceAsset == nullptr)
 	{
 		if (!warnedAboutLockBeforeInitialize)
@@ -558,7 +515,6 @@ void UCwipcNiagaraDataInterface::LockPointCloud(FVectorVMExternalFunctionContext
 			warnedAboutLockBeforeInitialize = false;
 		}
 	}
-	VectorVM::FUserPtrHandler<FCwipcInstanceData> InstData(Context);
 	FCwipcInstanceData* InstanceData = InstData.Get();
 	if (InstanceData == nullptr) {
 		return;
