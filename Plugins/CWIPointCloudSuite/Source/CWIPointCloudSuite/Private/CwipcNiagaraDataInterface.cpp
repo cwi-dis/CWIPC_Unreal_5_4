@@ -22,6 +22,7 @@ static const FName GetParticleSizeName("GetParticleSize");
 static const FName GetColorName("GetColor");
 static const FName GetPositionName("GetPosition");
 
+
 // GPU compatibility
 
 const FString UCwipcNiagaraDataInterface::PointsCountParamName = TEXT("PointsCount");
@@ -195,6 +196,7 @@ void UCwipcNiagaraDataInterface::GetFunctions(TArray<FNiagaraFunctionSignature>&
 
 		OutFunctions.Add(Sig);
 	}
+	
 }
 
 DEFINE_NDI_DIRECT_FUNC_BINDER(UCwipcNiagaraDataInterface, GetPosition);
@@ -237,6 +239,7 @@ void UCwipcNiagaraDataInterface::GetVMExternalFunction(const FVMExternalFunction
 		//UE_LOG(LogTemp, Warning, TEXT("UCwipcNiagaraDataInterface::GetVMExternalFunction: bound GetPosition"));
 		NDI_FUNC_BINDER(UCwipcNiagaraDataInterface, GetPosition)::Bind(this, OutFunc);
 	}
+	
 	else
 	{
 		UE_LOG(LogTemp, Warning, TEXT("UCwipcNiagaraDataInterface[%s]::GetVMExternalFunction: failed to bind name %s"), *GetPathNameSafe(this), *BindingInfo.Name.ToString());
@@ -430,6 +433,8 @@ void UCwipcNiagaraDataInterface::GetPosition(FVectorVMExternalFunctionContext& C
 	}
 	DBGMORE UE_LOG(LogTemp, Display, TEXT("UCwipcNiagaraDataInterface[%s]::GetPosition() nParticles=%d, nPoints=%d"), *GetPathNameSafe(this), numParticles, nPoints);
 }
+
+
 
 void UCwipcNiagaraDataInterface::GetParameterDefinitionHLSL(const FNiagaraDataInterfaceGPUParamInfo& ParamInfo, FString& OutHLSL)
 {

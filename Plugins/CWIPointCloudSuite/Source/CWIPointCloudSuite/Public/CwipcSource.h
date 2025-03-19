@@ -11,6 +11,31 @@ class cwipc_source;
 class cwipc;
 struct cwipc_point;
 
+USTRUCT(BlueprintType)
+struct FCwipcWrapper
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cwipc Niagara", meta = (DisplayName = "Index"))
+		TArray<int> Index;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cwipc Niagara", meta = (DisplayName = "PosX"))
+		TArray<float> PosX;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cwipc Niagara", meta = (DisplayName = "PosY"))
+		TArray<float> PosY;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cwipc Niagara", meta = (DisplayName = "PosZ"))
+		TArray<float> PosZ;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cwipc Niagara", meta = (DisplayName = "r"))
+		TArray<float> r;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cwipc Niagara", meta = (DisplayName = "g"))
+		TArray<float> g;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cwipc Niagara", meta = (DisplayName = "b"))
+		TArray<float> b;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cwipc Niagara", meta = (DisplayName = "tile"))
+		TArray<float> tile;
+
+	FCwipcWrapper() : Index(), PosX(), PosY(), PosZ(), r(), g(), b(), tile() {}
+};
+
 class FCwipcReaderThread : public FRunnable
 {
 public:
@@ -29,7 +54,7 @@ protected:
 /**
  *
  */
-UCLASS(BlueprintType, Category = "Cwipc Niagara", meta = (DisplayName = "Cwipc Point Cloud Source"))
+UCLASS(Blueprintable, Category = "Cwipc Niagara", meta = (DisplayName = "Cwipc Point Cloud Source"))
 class CWIPOINTCLOUDSUITE_API UCwipcSource : public UObject
 {
 	friend class UCwipcNiagaraDataInterface;
@@ -104,8 +129,17 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Cwipc Niagara", meta = (DisplayName = "Synthetic generator: wanted clouds per second"))
 	int synthetic_wanted_fps = 5;
 
+	UFUNCTION(BlueprintCallable, Category = "Cwipc Niagara", meta = (DisplayName = "Get Cwipc Point positions"))
+	FVector GetPosition(int32 index);
+
+	UFUNCTION(BlueprintCallable, Category = "Cwipc Niagara", meta = (DisplayName = "Get Cwipc Point colors"))
+	FVector GetColor(int32 index);
+
+	UFUNCTION(BlueprintCallable, Category = "Cwipc Niagara", meta = (DisplayName = "Get Cwipc Point Cloud Data"))
+	FCwipcWrapper GetPointCloudData();
 	// Sample indexes for each point
 
+	
 	cwipc_point* GetPoint(int32 index);
 
 };

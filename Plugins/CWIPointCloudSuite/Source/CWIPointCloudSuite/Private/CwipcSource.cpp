@@ -5,9 +5,9 @@
 #include <chrono>
 
 // Define as empty to get debug prints
-#define DBG
+//#define DBG
 // Define is if(0) to not get debug prints
-// #define DBG if(0)
+ #define DBG if(0)
 
 
 UCwipcSource::UCwipcSource(const FObjectInitializer& ObjectInitializer)
@@ -237,6 +237,81 @@ float UCwipcSource::GetParticleSize()
 
 
 
+FVector UCwipcSource::GetPosition(int32 index)
+{
+	FScopeLock lock(&pc_lock);
+	static FVector nullvector{ 0.0f, 0.0f, 0.0f };
+	if (pc_points == nullptr) {
+		UE_LOG(LogTemp, Error, TEXT("UCwipcSource::GetPosition: pc_points is null"));
+		return nullvector;
+	}
+	if (index < 0 || index >= pc_points_count) {
+		UE_LOG(LogTemp, Error, TEXT("UCwipcSource::GetPosition: index %d out of range %d"), index, pc_points_count);
+		return nullvector;
+	}
+	return FVector(pc_points[index].x, pc_points[index].y, pc_points[index].z);
+}
+
+FVector UCwipcSource::GetColor(int32 index)
+{
+	FScopeLock lock(&pc_lock);
+    static FVector nullvector{ 0.0f, 0.0f, 0.0f };
+	if (pc_points == nullptr) {
+		UE_LOG(LogTemp, Error, TEXT("UCwipcSource::GetColor: pc_points is null"));
+		return nullvector;
+	}
+	if (index < 0 || index >= pc_points_count) {
+		UE_LOG(LogTemp, Error, TEXT("UCwipcSource::GetColor: index %d out of range %d"), index, pc_points_count);
+		return nullvector;
+	}
+	return FVector(pc_points[index].r, pc_points[index].b, pc_points[index].g);
+}
+
+FCwipcWrapper UCwipcSource::GetPointCloudData()
+{
+	
+    FCwipcWrapper Wrapper;
+    if (pc)
+    {
+        FScopeLock lock(&pc_lock);
+        int PointCount = pc->count();
+        if (pc_points == nullptr)
+        {
+            UE_LOG(LogTemp, Error, TEXT("UCwipcSource::GetPointCloudData: pc_points is null"));
+            return FCwipcWrapper();
+        }
+        if (PointCount < 0 || PointCount > pc_points_count)
+        {
+            UE_LOG(LogTemp, Error, TEXT("UCwipcSource::GetPointCloudData: PointCount %d out of range %d"), PointCount, pc_points_count);
+        }
+        // Reserve space in TArrays to avoid multiple reallocations
+        Wrapper.Index.Reserve(PointCount);
+        Wrapper.PosX.Reserve(PointCount);
+        Wrapper.PosY.Reserve(PointCount);
+        Wrapper.PosZ.Reserve(PointCount);
+        Wrapper.r.Reserve(PointCount);
+        Wrapper.g.Reserve(PointCount);
+        Wrapper.b.Reserve(PointCount);
+        Wrapper.tile.Reserve(PointCount);
+
+        for (int32 i = 0; i < PointCount; ++i)
+        {
+            Wrapper.Index.Add(i);
+            Wrapper.PosX.Add(pc_points[i].x);
+            Wrapper.PosY.Add(pc_points[i].y);
+            Wrapper.PosZ.Add(pc_points[i].z);
+            Wrapper.r.Add(pc_points[i].r);
+            Wrapper.g.Add(pc_points[i].g);
+            Wrapper.b.Add(pc_points[i].b);
+            Wrapper.tile.Add(pc_points[i].tile);
+        }
+        DBG UE_LOG(LogTemp, Display, TEXT("UCwipcSource[%s]::GetPointCloudData() nParticles=%d, nPoints=%d"), *GetPathNameSafe(this), PointCount, pc_points_count);
+    }
+    return Wrapper;
+}
+
+
+
 cwipc_point* UCwipcSource::GetPoint(int32 index)
 {
     FScopeLock lock(&pc_lock);
@@ -251,6 +326,7 @@ cwipc_point* UCwipcSource::GetPoint(int32 index)
     }
     return &pc_points[index];
 }
+
 
 FCwipcReaderThread::FCwipcReaderThread(cwipc_source* _source, TCircularQueue<cwipc*>& _queue)
     : source(_source),

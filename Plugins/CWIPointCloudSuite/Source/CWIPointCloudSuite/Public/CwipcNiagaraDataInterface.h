@@ -13,7 +13,10 @@ class cwipc_source;
 class cwipc;
 struct cwipc_point;
 
-
+struct FCwipcInstanceData
+{
+	int NumPoints;
+};
 /**
  *
  */
