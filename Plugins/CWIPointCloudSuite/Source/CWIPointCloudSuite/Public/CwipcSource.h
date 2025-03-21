@@ -12,6 +12,17 @@ class cwipc;
 struct cwipc_point;
 
 USTRUCT(BlueprintType)
+struct FCwipcData
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cwipc Data", meta = (DisplayName = "PointData"))
+	TArray<FVector4> PointData;
+
+	FCwipcData() : PointData() {}
+};
+
+USTRUCT(BlueprintType)
 struct FCwipcWrapper
 {
 	GENERATED_BODY()
@@ -137,6 +148,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Cwipc Niagara", meta = (DisplayName = "Get Cwipc Point Cloud Data"))
 	FCwipcWrapper GetPointCloudData();
+
+	UFUNCTION(BlueprintCallable, Category = "Cwipc Data", meta = (DisplayName = "Get Cwipc Data"))
+	FCwipcData GetPointsData();
 	// Sample indexes for each point
 
 	
