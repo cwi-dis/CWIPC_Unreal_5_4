@@ -39,7 +39,8 @@ FCwipcFileReaderThread::FCwipcFileReaderThread(FString _pathName, TCircularQueue
     std::filesystem::path abs = std::filesystem::absolute(partial);
     pathName = abs.string();
     bool ok = std::filesystem::exists(pathName);
-    
+    DBG UE_LOG(LogTemp, Display, TEXT("FCwipcFileReaderThread: ok=%d for path %hs"), (int)ok, pathName.c_str());
+
 }
 
 
